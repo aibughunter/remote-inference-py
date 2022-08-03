@@ -1,7 +1,7 @@
 import json
 from xmlrpc.client import boolean
 from transformers import RobertaTokenizer
-import torch 
+import torch
 import onnxruntime
 from flask import Flask, request
 import numpy as np
@@ -9,7 +9,9 @@ import pickle
 
 app = Flask(__name__)
 
-def main(code: list, gpu:boolean) -> dict:
+provider = ["CPUExecutionProvider"]
+
+def main(code: list) -> dict:
     """Generate vulnerability predictions and line scores.
     Parameters
     ----------
@@ -23,17 +25,16 @@ def main(code: list, gpu:boolean) -> dict:
         "batch_vul_pred_prob" stores a list of vulnerability prediction probabilities [0.89, 0.75, ...] corresponding to "batch_vul_pred"
         "batch_line_scores" stores line scores as a 2D list [[att_score_0, att_score_1, ..., att_score_n], ...]
     """
+
     DEVICE = "cpu"
     MAX_LENGTH = 512
-    provider = ["CPUExecutionProvider"]
 
-    if gpu:
-        provider.insert(0, "CUDAExecutionProvider")
-    
     print("Using providers: ", provider)
+
     # load tokenizer
     tokenizer = RobertaTokenizer.from_pretrained("./linevul_tokenizer")
-    model_input = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length', return_tensors="pt").input_ids
+    model_input = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length',
+                            return_tensors="pt").input_ids
     # onnx runtime session
     ort_session = onnxruntime.InferenceSession("./saved_models/onnx_checkpoint/linevul.onnx", providers=provider)
     # compute ONNX Runtime output prediction
@@ -61,7 +62,7 @@ def main(code: list, gpu:boolean) -> dict:
                 att_weight_sum += layer_attention
         # normalize attention score
         att_weight_sum -= att_weight_sum.min()
-        att_weight_sum /= att_weight_sum.max()     
+        att_weight_sum /= att_weight_sum.max()
         batch_att_weight_sum.append(att_weight_sum)
     # batch_line_scores (2D list with shape of [batch size, seq length]): [[att_score_0, att_score_1, ..., att_score_n], ...]
     batch_line_scores = []
@@ -77,8 +78,11 @@ def main(code: list, gpu:boolean) -> dict:
     # batch_vul_pred_prob (1D list with shape of [batch_size]): [prob_1, prob_2, ..., prob_n]
     batch_vul_pred_prob = []
     for i in range(len(prob)):
-        batch_vul_pred_prob.append(prob[i][batch_vul_pred[i]].item()) # .item() added to prevent 'Object of type float32 is not JSON serializable' error
-    return {"batch_vul_pred": batch_vul_pred, "batch_vul_pred_prob": batch_vul_pred_prob, "batch_line_scores": batch_line_scores}
+        batch_vul_pred_prob.append(prob[i][batch_vul_pred[
+            i]].item())  # .item() added to prevent 'Object of type float32 is not JSON serializable' error
+    return {"batch_vul_pred": batch_vul_pred, "batch_vul_pred_prob": batch_vul_pred_prob,
+            "batch_line_scores": batch_line_scores}
+
 
 def get_word_att_scores(tokens: list, att_scores: list) -> list:
     word_att_scores = []
@@ -86,6 +90,7 @@ def get_word_att_scores(tokens: list, att_scores: list) -> list:
         token, att_score = tokens[i], att_scores[i]
         word_att_scores.append([token, att_score])
     return word_att_scores
+
 
 def get_all_lines_score(word_att_scores: list):
     # word_att_scores -> [[token, att_value], [token, att_value], ...]
@@ -109,6 +114,7 @@ def get_all_lines_score(word_att_scores: list):
             score_sum += word_att_scores[i][1]
     return all_lines_score
 
+
 def clean_special_token_values(all_values, padding=False):
     # special token in the beginning of the seq 
     all_values[0] = 0
@@ -121,13 +127,12 @@ def clean_special_token_values(all_values, padding=False):
         all_values[-1] = 0
     return all_values
 
-def main_cve(code: list, gpu:boolean) -> dict:
+
+def main_cve(code: list) -> dict:
     DEVICE = "cpu"
     MAX_LENGTH = 512
 
-    provider = ["CPUExecutionProvider"]
-    if gpu:
-        provider.insert(0, "CUDAExecutionProvider")
+    print("Using providers: ", provider)
 
     with open("./label_map.pkl", "rb") as f:
         cwe_id_map, cwe_type_map = pickle.load(f)
@@ -137,7 +142,7 @@ def main_cve(code: list, gpu:boolean) -> dict:
     tokenizer.cls_type_token = "<cls_type>"
     model_input = []
     for c in code:
-        code_tokens = tokenizer.tokenize(str(c))[:MAX_LENGTH-3]
+        code_tokens = tokenizer.tokenize(str(c))[:MAX_LENGTH - 3]
         source_tokens = [tokenizer.cls_token] + code_tokens + [tokenizer.cls_type_token] + [tokenizer.sep_token]
         input_ids = tokenizer.convert_tokens_to_ids(source_tokens)
         padding_length = MAX_LENGTH - len(input_ids)
@@ -170,7 +175,8 @@ def main_cve(code: list, gpu:boolean) -> dict:
             "cwe_type": batch_cwe_type_pred,
             "cwe_type_prob": batch_cwe_type_pred_prob}
 
-def main_sev(code: list, gpu:boolean) -> dict:
+
+def main_sev(code: list) -> dict:
     """Generate CVSS severity score predictions.
     Parameters
     ----------
@@ -186,13 +192,12 @@ def main_sev(code: list, gpu:boolean) -> dict:
     DEVICE = "cpu"
     MAX_LENGTH = 512
 
-    provider = ["CPUExecutionProvider"]
-    if gpu:
-        provider.insert(0, "CUDAExecutionProvider")
+    print("Using providers: ", provider)
 
     # load tokenizer
     tokenizer = RobertaTokenizer.from_pretrained("./linevul_tokenizer")
-    model_input = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length', return_tensors="pt").input_ids
+    model_input = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length',
+                            return_tensors="pt").input_ids
     # onnx runtime session
     ort_session = onnxruntime.InferenceSession("./saved_models/onnx_checkpoint/sev_model.onnx", providers=provider)
     # compute ONNX Runtime output prediction
@@ -213,6 +218,7 @@ def main_sev(code: list, gpu:boolean) -> dict:
             batch_sev_class.append("Critical")
     return {"batch_sev_score": batch_sev_score, "batch_sev_class": batch_sev_class}
 
+
 def to_numpy(tensor):
     """ get np input for onnx runtime model """
     return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
@@ -224,7 +230,8 @@ def predict_gpu():
     if not functions:
         return {'error': 'No functions to process'}
     else:
-        result = json.dumps(main(functions,True))
+        provider.insert(0, "CUDAExecutionProvider")
+        result = json.dumps(main(functions))
         return result
 
 
@@ -234,8 +241,9 @@ def predict_cpu():
     if not functions:
         return {'error': 'No functions to process'}
     else:
-        result = json.dumps(main(functions,False))
+        result = json.dumps(main(functions))
         return result
+
 
 @app.route('/api/v1/gpu/cwe', methods=['POST'])
 def cve_gpu():
@@ -243,8 +251,10 @@ def cve_gpu():
     if not code:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_cve(code, True))
+        provider.insert(0, "CUDAExecutionProvider")
+        result = json.dumps(main_cve(code))
         return result
+
 
 @app.route('/api/v1/cpu/cwe', methods=['POST'])
 def cve_cpu():
@@ -252,30 +262,30 @@ def cve_cpu():
     if not code:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_cve(code, False))
+        result = json.dumps(main_cve(code))
         return result
 
-@app.route('/api/v1/gpu/sev' , methods=['POST'])
+
+@app.route('/api/v1/gpu/sev', methods=['POST'])
 def sev_gpu():
     code = request.get_json()
     if not code:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_sev(code, True))
+        provider.insert(0, "CUDAExecutionProvider")
+        result = json.dumps(main_sev(code))
         return result
 
-@app.route('/api/v1/cpu/sev' , methods=['POST'])
+
+@app.route('/api/v1/cpu/sev', methods=['POST'])
 def sev_cpu():
     code = request.get_json()
     if not code:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_sev(code, False))
+        result = json.dumps(main_sev(code))
         return result
 
 
 if __name__ == "__main__":
     app.run(host="localhost", port=5000)
-    #  thislist = ["apple", "banana", "cherry"];
-    #  print(main_sev(thislist))
-    # print("Hello")
