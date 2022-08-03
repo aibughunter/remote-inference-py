@@ -11,6 +11,7 @@ app = Flask(__name__)
 
 provider = ["CPUExecutionProvider"]
 
+
 def main(code: list) -> dict:
     """Generate vulnerability predictions and line scores.
     Parameters
