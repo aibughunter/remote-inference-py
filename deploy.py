@@ -129,7 +129,7 @@ def clean_special_token_values(all_values, padding=False):
     return all_values
 
 
-def main_cve(code: list) -> dict:
+def main_cwe(code: list) -> dict:
     DEVICE = "cpu"
     MAX_LENGTH = 512
 
@@ -247,23 +247,23 @@ def predict_cpu():
 
 
 @app.route('/api/v1/gpu/cwe', methods=['POST'])
-def cve_gpu():
+def cwe_gpu():
     code = request.get_json()
     if not code:
         return {'error': 'No code to process'}
     else:
         provider.insert(0, "CUDAExecutionProvider")
-        result = json.dumps(main_cve(code))
+        result = json.dumps(main_cwe(code))
         return result
 
 
 @app.route('/api/v1/cpu/cwe', methods=['POST'])
-def cve_cpu():
+def cwe_cpu():
     code = request.get_json()
     if not code:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_cve(code))
+        result = json.dumps(main_cwe(code))
         return result
 
 

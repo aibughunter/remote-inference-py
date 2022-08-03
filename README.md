@@ -1,6 +1,11 @@
 # remote-inference-py
 Python Flask version of AIBugHunter Remote Inference Engine
 
+# Known Issues
+
+- Conda may be interfering with onnxruntime and onnxruntime-gpu installation
+  - Using vanilla Python VirtualEnv instead
+
 # References
 
 - https://www.codejam.info/2015/03/portable-rust-installation.html
