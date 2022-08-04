@@ -9,13 +9,13 @@ import pickle
 
 app = Flask(__name__)
 
-provider = ["CPUExecutionProvider"]
 
-
-def main(code: list) -> dict:
+def main(code: list, gpu: boolean = False) -> dict:
     """Generate vulnerability predictions and line scores.
     Parameters
     ----------
+    gpu: `bool`
+        Defines if CUDA inference is enabled
     code : :obj:`list`
         A list of String functions.
     Returns
@@ -30,7 +30,11 @@ def main(code: list) -> dict:
     DEVICE = "cpu"
     MAX_LENGTH = 512
 
-    print("Using providers: ", provider)
+    provider = ["CPUExecutionProvider"]
+    if gpu:
+        provider.insert(0, "CUDAExecutionProvider")
+
+    print(provider)
 
     # load tokenizer
     tokenizer = RobertaTokenizer.from_pretrained("./linevul_tokenizer")
@@ -129,11 +133,13 @@ def clean_special_token_values(all_values, padding=False):
     return all_values
 
 
-def main_cwe(code: list) -> dict:
+def main_cwe(code: list, gpu: boolean = False) -> dict:
     DEVICE = "cpu"
     MAX_LENGTH = 512
 
-    print("Using providers: ", provider)
+    provider = ["CPUExecutionProvider"]
+    if gpu:
+        provider.insert(0, "CUDAExecutionProvider")
 
     with open("./label_map.pkl", "rb") as f:
         cwe_id_map, cwe_type_map = pickle.load(f)
@@ -177,10 +183,12 @@ def main_cwe(code: list) -> dict:
             "cwe_type_prob": batch_cwe_type_pred_prob}
 
 
-def main_sev(code: list) -> dict:
+def main_sev(code: list, gpu: boolean = False) -> dict:
     """Generate CVSS severity score predictions.
     Parameters
     ----------
+    gpu : boolean
+        Defines if CUDA inference is enabled
     code : :obj:`list`
         A list of String functions.
     Returns
@@ -193,7 +201,9 @@ def main_sev(code: list) -> dict:
     DEVICE = "cpu"
     MAX_LENGTH = 512
 
-    print("Using providers: ", provider)
+    provider = ["CPUExecutionProvider"]
+    if gpu:
+        provider.insert(0, "CUDAExecutionProvider")
 
     # load tokenizer
     tokenizer = RobertaTokenizer.from_pretrained("./linevul_tokenizer")
@@ -231,8 +241,7 @@ def predict_gpu():
     if not functions:
         return {'error': 'No functions to process'}
     else:
-        provider.insert(0, "CUDAExecutionProvider")
-        result = json.dumps(main(functions))
+        result = json.dumps(main(functions, True))
         return result
 
 
@@ -252,8 +261,7 @@ def cwe_gpu():
     if not code:
         return {'error': 'No code to process'}
     else:
-        provider.insert(0, "CUDAExecutionProvider")
-        result = json.dumps(main_cwe(code))
+        result = json.dumps(main_cwe(code, True))
         return result
 
 
@@ -273,8 +281,8 @@ def sev_gpu():
     if not code:
         return {'error': 'No code to process'}
     else:
-        provider.insert(0, "CUDAExecutionProvider")
-        result = json.dumps(main_sev(code))
+
+        result = json.dumps(main_sev(code, True))
         return result
 
 
