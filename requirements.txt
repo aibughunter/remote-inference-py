@@ -1,0 +1,6 @@
+Flask>=1.1.2
+numpy>=1.21.5
+onnxruntime
+onnxruntime_gpu
+torch
+transformers>=4.20.1
