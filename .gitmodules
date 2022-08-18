@@ -1,0 +1,3 @@
+[submodule "inference-base"]
+	path = inference-base
+	url = git@github.com:aibughunter/inference-base.git
