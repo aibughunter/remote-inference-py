@@ -3,11 +3,15 @@ from xmlrpc.client import boolean
 from transformers import RobertaTokenizer
 import torch
 import onnxruntime
-from flask import Flask, request
+# from flask import Flask, request
 import numpy as np
 import pickle
+from typing import Union
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
-app = Flask(__name__)
+app = FastAPI()
 
 
 def main(code: list, gpu: boolean = False) -> dict:
@@ -235,9 +239,9 @@ def to_numpy(tensor):
     return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
 
-@app.route('/api/v1/gpu/predict', methods=['POST'])
-def predict_gpu():
-    functions = request.get_json()
+@app.post('/api/v1/gpu/predict')
+async def predict_gpu(request: Request):
+    functions = await request.json()
     if not functions:
         return {'error': 'No functions to process'}
     else:
@@ -245,9 +249,9 @@ def predict_gpu():
         return result
 
 
-@app.route('/api/v1/cpu/predict', methods=['POST'])
-def predict_cpu():
-    functions = request.get_json()
+@app.post('/api/v1/cpu/predict')
+async def predict_cpu(request: Request):
+    functions = await request.json()
     if not functions:
         return {'error': 'No functions to process'}
     else:
@@ -255,9 +259,9 @@ def predict_cpu():
         return result
 
 
-@app.route('/api/v1/gpu/cwe', methods=['POST'])
-def cwe_gpu():
-    code = request.get_json()
+@app.post('/api/v1/gpu/cwe')
+async def cwe_gpu(request: Request):
+    code = await request.json()
     if not code:
         return {'error': 'No code to process'}
     else:
@@ -265,9 +269,9 @@ def cwe_gpu():
         return result
 
 
-@app.route('/api/v1/cpu/cwe', methods=['POST'])
-def cwe_cpu():
-    code = request.get_json()
+@app.post('/api/v1/cpu/cwe')
+async def cwe_cpu(request: Request):
+    code = await request.json()
     if not code:
         return {'error': 'No code to process'}
     else:
@@ -275,9 +279,9 @@ def cwe_cpu():
         return result
 
 
-@app.route('/api/v1/gpu/sev', methods=['POST'])
-def sev_gpu():
-    code = request.get_json()
+@app.post('/api/v1/gpu/sev')
+async def sev_gpu(request: Request):
+    code = await request.json()
     if not code:
         return {'error': 'No code to process'}
     else:
@@ -286,15 +290,11 @@ def sev_gpu():
         return result
 
 
-@app.route('/api/v1/cpu/sev', methods=['POST'])
-def sev_cpu():
-    code = request.get_json()
+@app.post('/api/v1/cpu/sev')
+async def sev_cpu(request: Request):
+    code = await request.json()
     if not code:
         return {'error': 'No code to process'}
     else:
         result = json.dumps(main_sev(code))
         return result
-
-
-if __name__ == "__main__":
-    app.run(host="localhost", port=5000)
