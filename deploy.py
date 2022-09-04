@@ -98,9 +98,9 @@ async def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> 
         batch_vul_pred_prob.append(prob[i][batch_vul_pred[
             i]].item())  # .item() added to prevent 'Object of type float32 is not JSON serializable' error
 
-    test = random.randrange(3, 6)
-    print(test)
-    await asyncio.sleep(test)
+    # test = random.randrange(3, 6)
+    # print(test)
+    # await asyncio.sleep(test)
 
     return {"batch_vul_pred": batch_vul_pred, "batch_vul_pred_prob": batch_vul_pred_prob,
             "batch_line_scores": batch_line_scores}
@@ -265,7 +265,7 @@ async def predict_gpu(request: Request):
     if not functions:
         return {'error': 'No functions to process'}
     else:
-        result = json.dumps(main(functions, True))
+        result = json.dumps(await main(functions, True))
         return result
 
 
