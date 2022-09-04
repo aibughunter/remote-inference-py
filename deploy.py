@@ -16,6 +16,18 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
+def create_position_ids_from_input_ids(input_ids, padding_idx, past_key_values_length=0):
+    """
+    Replace non-padding symbols with their position numbers. Position numbers begin at padding_idx+1. Padding symbols
+    are ignored. This is modified from fairseq's `utils.make_positions`.
+    Args:
+        x: torch.Tensor x:
+    Returns: torch.Tensor
+    """
+    # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
+    mask = input_ids.ne(padding_idx).type(torch.int32)
+    incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask) + past_key_values_length) * mask
+    return incremental_indices + padding_idx
 
 def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> dict:
     """Generate vulnerability predictions and line scores.
@@ -51,11 +63,20 @@ def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> dict:
                             return_tensors="pt").input_ids
     if use_int32:
         model_input = model_input.type(torch.int32)
-
+        attention_mask = model_input.ne(tokenizer.pad_token_id).type(torch.float32)
+        # TODO - change DEVICE
+        token_type_ids = torch.zeros(model_input.shape, dtype=torch.int32, device=DEVICE)
+        position_ids = create_position_ids_from_input_ids(model_input, tokenizer.pad_token_id)
     # onnx runtime session
     ort_session = onnxruntime.InferenceSession("./saved_models/onnx_checkpoint/linevul.onnx", providers=provider)
     # compute ONNX Runtime output prediction
-    ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(model_input)}
+    if use_int32:
+        ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(model_input),
+                      ort_session.get_inputs()[1].name: to_numpy(attention_mask),
+                      ort_session.get_inputs()[2].name: to_numpy(token_type_ids),
+                      ort_session.get_inputs()[3].name: to_numpy(position_ids)}
+    else:
+        ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(model_input)}
     prob, attentions = ort_session.run(None, ort_inputs)
     # prepare token for attention line score mapping
     batch_tokens = []
