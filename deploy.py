@@ -1,4 +1,7 @@
+import asyncio
 import json
+import random
+import time
 from xmlrpc.client import boolean
 from transformers import RobertaTokenizer
 import torch
@@ -14,7 +17,7 @@ from pydantic import BaseModel
 app = FastAPI()
 
 
-def main(code: list, gpu: boolean = False, use_int32: boolean = True) -> dict:
+async def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> dict:
     """Generate vulnerability predictions and line scores.
     Parameters
     ----------
@@ -39,7 +42,7 @@ def main(code: list, gpu: boolean = False, use_int32: boolean = True) -> dict:
     provider = ["CPUExecutionProvider"]
     if gpu:
         provider.insert(0, "CUDAExecutionProvider")
-
+        # provider.insert(0, "TensorrtExecutionProvider")
     print(provider)
 
     # load tokenizer
@@ -48,6 +51,7 @@ def main(code: list, gpu: boolean = False, use_int32: boolean = True) -> dict:
                             return_tensors="pt").input_ids
     if use_int32:
         model_input = model_input.type(torch.int32)
+
     # onnx runtime session
     ort_session = onnxruntime.InferenceSession("./saved_models/onnx_checkpoint/linevul.onnx", providers=provider)
     # compute ONNX Runtime output prediction
@@ -93,6 +97,11 @@ def main(code: list, gpu: boolean = False, use_int32: boolean = True) -> dict:
     for i in range(len(prob)):
         batch_vul_pred_prob.append(prob[i][batch_vul_pred[
             i]].item())  # .item() added to prevent 'Object of type float32 is not JSON serializable' error
+
+    test = random.randrange(3, 6)
+    print(test)
+    await asyncio.sleep(test)
+
     return {"batch_vul_pred": batch_vul_pred, "batch_vul_pred_prob": batch_vul_pred_prob,
             "batch_line_scores": batch_line_scores}
 
@@ -260,14 +269,38 @@ async def predict_gpu(request: Request):
         return result
 
 
+# @app.post('/api/v1/cpu/predict')
+# async def predict_cpu(request: Request):
+#     functions = await request.json()
+#     print(functions)
+#     if not functions:
+#         return {'error': 'No functions to process'}
+#     else:
+#         # result = json.dumps(main(functions))
+#         time.sleep(5)
+#         print("Finished processing")
+#         result = 0
+#         return result
+
+async def sample():
+    test = random.randrange(3,6)
+    print(test)
+    await asyncio.sleep(test)
+    return 0
+
+
 @app.post('/api/v1/cpu/predict')
 async def predict_cpu(request: Request):
+
     functions = await request.json()
-    if not functions:
-        return {'error': 'No functions to process'}
-    else:
-        result = json.dumps(main(functions))
-        return result
+
+    # main(functions, False, False)
+    print("Received Request")
+    result = await main(functions, False, False)
+    print(result)
+    # await sample()
+
+    return 0
 
 
 @app.post('/api/v1/gpu/cwe')
