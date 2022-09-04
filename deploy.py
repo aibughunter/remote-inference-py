@@ -37,11 +37,11 @@ def main(code: list, gpu: boolean = False) -> dict:
     provider = ["CPUExecutionProvider"]
     if gpu:
         provider.insert(0, "CUDAExecutionProvider")
-
+    # provider.insert(0, "TensorrtExecutionProvider")
     print(provider)
 
     # load tokenizer
-    tokenizer = RobertaTokenizer.from_pretrained("./linevul_tokenizer")
+    tokenizer = RobertaTokenizer.from_pretrained("./inference-common/tokenizer")
     model_input = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length',
                             return_tensors="pt").input_ids
     # onnx runtime session
@@ -145,10 +145,10 @@ def main_cwe(code: list, gpu: boolean = False) -> dict:
     if gpu:
         provider.insert(0, "CUDAExecutionProvider")
 
-    with open("./label_map.pkl", "rb") as f:
+    with open("./inference-common/label_map.pkl", "rb") as f:
         cwe_id_map, cwe_type_map = pickle.load(f)
     # load tokenizer
-    tokenizer = RobertaTokenizer.from_pretrained("./linevul_tokenizer")
+    tokenizer = RobertaTokenizer.from_pretrained("./inference-common/tokenizer")
     tokenizer.add_tokens(["<cls_type>"])
     tokenizer.cls_type_token = "<cls_type>"
     model_input = []
@@ -210,7 +210,7 @@ def main_sev(code: list, gpu: boolean = False) -> dict:
         provider.insert(0, "CUDAExecutionProvider")
 
     # load tokenizer
-    tokenizer = RobertaTokenizer.from_pretrained("./linevul_tokenizer")
+    tokenizer = RobertaTokenizer.from_pretrained("./inference-common/tokenizer")
     model_input = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length',
                             return_tensors="pt").input_ids
     # onnx runtime session
@@ -285,7 +285,6 @@ async def sev_gpu(request: Request):
     if not code:
         return {'error': 'No code to process'}
     else:
-
         result = json.dumps(main_sev(code, True))
         return result
 
