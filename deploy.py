@@ -64,7 +64,8 @@ def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> dict:
     if use_int32:
         model_input = model_input.type(torch.int32)
         attention_mask = model_input.ne(tokenizer.pad_token_id).type(torch.float32)
-        token_type_ids = torch.zeros(model_input.shape, dtype=torch.int32, device=device)
+        # TODO - change DEVICE
+        token_type_ids = torch.zeros(model_input.shape, dtype=torch.int32, device=DEVICE)
         position_ids = create_position_ids_from_input_ids(model_input, tokenizer.pad_token_id)
     # onnx runtime session
     ort_session = onnxruntime.InferenceSession("./saved_models/onnx_checkpoint/linevul.onnx", providers=provider)
