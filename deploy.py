@@ -17,7 +17,7 @@ from pydantic import BaseModel
 app = FastAPI()
 
 
-async def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> dict:
+def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> dict:
     """Generate vulnerability predictions and line scores.
     Parameters
     ----------
@@ -97,10 +97,6 @@ async def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> 
     for i in range(len(prob)):
         batch_vul_pred_prob.append(prob[i][batch_vul_pred[
             i]].item())  # .item() added to prevent 'Object of type float32 is not JSON serializable' error
-
-    # test = random.randrange(3, 6)
-    # print(test)
-    # await asyncio.sleep(test)
 
     return {"batch_vul_pred": batch_vul_pred, "batch_vul_pred_prob": batch_vul_pred_prob,
             "batch_line_scores": batch_line_scores}
@@ -260,85 +256,70 @@ def to_numpy(tensor):
 
 
 @app.post('/api/v1/gpu/predict')
-async def predict_gpu(request: Request):
-    functions = await request.json()
+def predict_gpu(request: Request):
+
+    functions = asyncio.run(request.json())
+
     if not functions:
         return {'error': 'No functions to process'}
     else:
-        result = json.dumps(await main(functions, True))
+        result = json.dumps(main(functions, True))
         return result
 
-
-# @app.post('/api/v1/cpu/predict')
-# async def predict_cpu(request: Request):
-#     functions = await request.json()
-#     print(functions)
-#     if not functions:
-#         return {'error': 'No functions to process'}
-#     else:
-#         # result = json.dumps(main(functions))
-#         time.sleep(5)
-#         print("Finished processing")
-#         result = 0
-#         return result
-
-async def sample():
-    test = random.randrange(3,6)
-    print(test)
-    await asyncio.sleep(test)
-    return 0
-
-
 @app.post('/api/v1/cpu/predict')
-async def predict_cpu(request: Request):
+def predict_cpu(request: Request):
 
-    functions = await request.json()
+    functions = asyncio.run(request.json())
 
-    # main(functions, False, False)
-    print("Received Request")
-    result = await main(functions, False, False)
-    print(result)
-    # await sample()
-
-    return 0
-
+    if not functions:
+        return {'error': 'No functions to process'}
+    else:
+        result = json.dumps(main(functions))
+        return result
 
 @app.post('/api/v1/gpu/cwe')
-async def cwe_gpu(request: Request):
-    code = await request.json()
-    if not code:
+def cwe_gpu(request: Request):
+
+    functions = asyncio.run(request.json())
+
+    if not functions:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_cwe(code, True))
+        result = json.dumps(main_cwe(functions, True))
         return result
 
 
 @app.post('/api/v1/cpu/cwe')
-async def cwe_cpu(request: Request):
-    code = await request.json()
+def cwe_cpu(request: Request):
+
+    functions = asyncio.run(request.json())
+
     if not code:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_cwe(code))
+        result = json.dumps(main_cwe(functions))
         return result
 
 
 @app.post('/api/v1/gpu/sev')
-async def sev_gpu(request: Request):
-    code = await request.json()
-    if not code:
+def sev_gpu(request: Request):
+
+    functions = asyncio.run(request.json())
+
+    if not functions:
         return {'error': 'No code to process'}
     else:
-
-        result = json.dumps(main_sev(code, True))
+        result = json.dumps(main_sev(functions, True))
         return result
 
 
 @app.post('/api/v1/cpu/sev')
-async def sev_cpu(request: Request):
-    code = await request.json()
-    if not code:
+def sev_cpu(request: Request):
+
+    functions = asyncio.run(request.json())
+
+    if not functions:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_sev(code))
+        result = json.dumps(main_sev(functions))
         return result
