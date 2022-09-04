@@ -43,7 +43,7 @@ def main(code: list, gpu: boolean = False, use_int32: boolean = True) -> dict:
     print(provider)
 
     # load tokenizer
-    tokenizer = RobertaTokenizer.from_pretrained("./linevul_tokenizer")
+    tokenizer = RobertaTokenizer.from_pretrained("./inference-common/tokenizer")
     model_input = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length',
                             return_tensors="pt").input_ids
     if use_int32:
@@ -149,10 +149,10 @@ def main_cwe(code: list, gpu: boolean = False, use_int32: boolean = True) -> dic
     if gpu:
         provider.insert(0, "CUDAExecutionProvider")
 
-    with open("./label_map.pkl", "rb") as f:
+    with open("./inference-common/label_map.pkl", "rb") as f:
         cwe_id_map, cwe_type_map = pickle.load(f)
     # load tokenizer
-    tokenizer = RobertaTokenizer.from_pretrained("./linevul_tokenizer")
+    tokenizer = RobertaTokenizer.from_pretrained("./inference-common/tokenizer")
     tokenizer.add_tokens(["<cls_type>"])
     tokenizer.cls_type_token = "<cls_type>"
     model_input = []
@@ -219,7 +219,7 @@ def main_sev(code: list, gpu: boolean = False, use_int32: boolean = True) -> dic
         provider.insert(0, "CUDAExecutionProvider")
 
     # load tokenizer
-    tokenizer = RobertaTokenizer.from_pretrained("./linevul_tokenizer")
+    tokenizer = RobertaTokenizer.from_pretrained("./inference-common/tokenizer")
     model_input = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length',
                             return_tensors="pt").input_ids
     if use_int32:
