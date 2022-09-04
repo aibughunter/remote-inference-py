@@ -14,14 +14,16 @@ from pydantic import BaseModel
 app = FastAPI()
 
 
-def main(code: list, gpu: boolean = False) -> dict:
+def main(code: list, gpu: boolean = False, use_int32: boolean = True) -> dict:
     """Generate vulnerability predictions and line scores.
     Parameters
     ----------
-    gpu: `bool`
-        Defines if CUDA inference is enabled
     code : :obj:`list`
         A list of String functions.
+    gpu : boolean
+        Defines if CUDA inference is enabled
+    use_int32 : boolean
+        Whether to use half-precision inference
     Returns
     -------
     :obj:`dict`
@@ -37,13 +39,15 @@ def main(code: list, gpu: boolean = False) -> dict:
     provider = ["CPUExecutionProvider"]
     if gpu:
         provider.insert(0, "CUDAExecutionProvider")
-    # provider.insert(0, "TensorrtExecutionProvider")
+
     print(provider)
 
     # load tokenizer
-    tokenizer = RobertaTokenizer.from_pretrained("./inference-common/tokenizer")
+    tokenizer = RobertaTokenizer.from_pretrained("./linevul_tokenizer")
     model_input = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length',
                             return_tensors="pt").input_ids
+    if use_int32:
+        model_input = model_input.type(torch.int32)
     # onnx runtime session
     ort_session = onnxruntime.InferenceSession("./saved_models/onnx_checkpoint/linevul.onnx", providers=provider)
     # compute ONNX Runtime output prediction
@@ -137,7 +141,7 @@ def clean_special_token_values(all_values, padding=False):
     return all_values
 
 
-def main_cwe(code: list, gpu: boolean = False) -> dict:
+def main_cwe(code: list, gpu: boolean = False, use_int32: boolean = True) -> dict:
     DEVICE = "cpu"
     MAX_LENGTH = 512
 
@@ -145,10 +149,10 @@ def main_cwe(code: list, gpu: boolean = False) -> dict:
     if gpu:
         provider.insert(0, "CUDAExecutionProvider")
 
-    with open("./inference-common/label_map.pkl", "rb") as f:
+    with open("./label_map.pkl", "rb") as f:
         cwe_id_map, cwe_type_map = pickle.load(f)
     # load tokenizer
-    tokenizer = RobertaTokenizer.from_pretrained("./inference-common/tokenizer")
+    tokenizer = RobertaTokenizer.from_pretrained("./linevul_tokenizer")
     tokenizer.add_tokens(["<cls_type>"])
     tokenizer.cls_type_token = "<cls_type>"
     model_input = []
@@ -159,7 +163,10 @@ def main_cwe(code: list, gpu: boolean = False) -> dict:
         padding_length = MAX_LENGTH - len(input_ids)
         input_ids += [tokenizer.pad_token_id] * padding_length
         model_input.append(input_ids)
-    model_input = torch.tensor(model_input, device=DEVICE)
+    if use_int32:
+        model_input = torch.tensor(model_input, device=DEVICE, dtype=torch.int32)
+    else:
+        model_input = torch.tensor(model_input, device=DEVICE)
     # onnx runtime session
     ort_session = onnxruntime.InferenceSession("./saved_models/onnx_checkpoint/movul.onnx", providers=provider)
     # compute ONNX Runtime output prediction
@@ -187,14 +194,16 @@ def main_cwe(code: list, gpu: boolean = False) -> dict:
             "cwe_type_prob": batch_cwe_type_pred_prob}
 
 
-def main_sev(code: list, gpu: boolean = False) -> dict:
+def main_sev(code: list, gpu: boolean = False, use_int32: boolean = True) -> dict:
     """Generate CVSS severity score predictions.
     Parameters
     ----------
-    gpu : boolean
-        Defines if CUDA inference is enabled
     code : :obj:`list`
         A list of String functions.
+    gpu : boolean
+        Defines if CUDA inference is enabled
+    use_int32 : boolean
+        Whether to use half-precision inference
     Returns
     -------
     :obj:`dict`
@@ -210,9 +219,11 @@ def main_sev(code: list, gpu: boolean = False) -> dict:
         provider.insert(0, "CUDAExecutionProvider")
 
     # load tokenizer
-    tokenizer = RobertaTokenizer.from_pretrained("./inference-common/tokenizer")
+    tokenizer = RobertaTokenizer.from_pretrained("./linevul_tokenizer")
     model_input = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length',
                             return_tensors="pt").input_ids
+    if use_int32:
+        model_input = model_input.type(torch.int32)
     # onnx runtime session
     ort_session = onnxruntime.InferenceSession("./saved_models/onnx_checkpoint/sev_model.onnx", providers=provider)
     # compute ONNX Runtime output prediction
@@ -285,6 +296,7 @@ async def sev_gpu(request: Request):
     if not code:
         return {'error': 'No code to process'}
     else:
+
         result = json.dumps(main_sev(code, True))
         return result
 
