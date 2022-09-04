@@ -263,7 +263,7 @@ def predict_gpu(request: Request):
     if not functions:
         return {'error': 'No functions to process'}
     else:
-        result = json.dumps(main(functions, True))
+        result = json.dumps(main(functions, True, False))
         return result
 
 @app.post('/api/v1/cpu/predict')
@@ -274,7 +274,7 @@ def predict_cpu(request: Request):
     if not functions:
         return {'error': 'No functions to process'}
     else:
-        result = json.dumps(main(functions))
+        result = json.dumps(main(functions, False, False))
         return result
 
 @app.post('/api/v1/gpu/cwe')
@@ -285,7 +285,7 @@ def cwe_gpu(request: Request):
     if not functions:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_cwe(functions, True))
+        result = json.dumps(main_cwe(functions, True, False))
         return result
 
 
@@ -294,10 +294,10 @@ def cwe_cpu(request: Request):
 
     functions = asyncio.run(request.json())
 
-    if not code:
+    if not functions:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_cwe(functions))
+        result = json.dumps(main_cwe(functions, False, False))
         return result
 
 
@@ -309,7 +309,7 @@ def sev_gpu(request: Request):
     if not functions:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_sev(functions, True))
+        result = json.dumps(main_sev(functions, True, False))
         return result
 
 
@@ -321,5 +321,5 @@ def sev_cpu(request: Request):
     if not functions:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_sev(functions))
+        result = json.dumps(main_sev(functions, False, False))
         return result
