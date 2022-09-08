@@ -3,6 +3,8 @@ import json
 import random
 import time
 from xmlrpc.client import boolean
+
+import memory_profiler
 from transformers import RobertaTokenizer
 import torch
 import onnxruntime
@@ -13,8 +15,10 @@ from typing import Union
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from memory_profiler import profile, memory_usage
 
 app = FastAPI()
+
 
 def create_position_ids_from_input_ids(input_ids, padding_idx, past_key_values_length=0):
     """
@@ -29,6 +33,8 @@ def create_position_ids_from_input_ids(input_ids, padding_idx, past_key_values_l
     incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask) + past_key_values_length) * mask
     return incremental_indices + padding_idx
 
+
+@profile
 def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> dict:
     """Generate vulnerability predictions and line scores.
     Parameters
@@ -53,8 +59,9 @@ def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> dict:
 
     provider = ["CPUExecutionProvider"]
     if gpu:
-        provider.insert(0, "CUDAExecutionProvider")
         # provider.insert(0, "TensorrtExecutionProvider")
+        provider.insert(0, "CUDAExecutionProvider")
+
     print(provider)
 
     # load tokenizer
@@ -278,29 +285,32 @@ def to_numpy(tensor):
 
 @app.post('/api/v1/gpu/predict')
 def predict_gpu(request: Request):
-
     functions = asyncio.run(request.json())
 
     if not functions:
         return {'error': 'No functions to process'}
     else:
         result = json.dumps(main(functions, True, False))
+
         return result
+
 
 @app.post('/api/v1/cpu/predict')
 def predict_cpu(request: Request):
-
     functions = asyncio.run(request.json())
 
     if not functions:
         return {'error': 'No functions to process'}
     else:
         result = json.dumps(main(functions, False, False))
+        usage = memory_usage((main, (functions, False, False)))
+        diff = max(usage) - min(usage)
+        print(diff)
         return result
+
 
 @app.post('/api/v1/gpu/cwe')
 def cwe_gpu(request: Request):
-
     functions = asyncio.run(request.json())
 
     if not functions:
@@ -312,7 +322,6 @@ def cwe_gpu(request: Request):
 
 @app.post('/api/v1/cpu/cwe')
 def cwe_cpu(request: Request):
-
     functions = asyncio.run(request.json())
 
     if not functions:
@@ -324,7 +333,6 @@ def cwe_cpu(request: Request):
 
 @app.post('/api/v1/gpu/sev')
 def sev_gpu(request: Request):
-
     functions = asyncio.run(request.json())
 
     if not functions:
@@ -336,7 +344,6 @@ def sev_gpu(request: Request):
 
 @app.post('/api/v1/cpu/sev')
 def sev_cpu(request: Request):
-
     functions = asyncio.run(request.json())
 
     if not functions:
