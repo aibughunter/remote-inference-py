@@ -1,6 +1,7 @@
 import asyncio
 import json
 import random
+import sys
 import time
 from xmlrpc.client import boolean
 
@@ -12,7 +13,7 @@ import onnxruntime
 import numpy as np
 import pickle
 from typing import Union
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from memory_profiler import profile, memory_usage
@@ -34,8 +35,7 @@ def create_position_ids_from_input_ids(input_ids, padding_idx, past_key_values_l
     return incremental_indices + padding_idx
 
 
-@profile
-def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> dict:
+def main(code: list, gpu: boolean = False, use_int32: boolean = False):
     """Generate vulnerability predictions and line scores.
     Parameters
     ----------
@@ -54,80 +54,95 @@ def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> dict:
         "batch_line_scores" stores line scores as a 2D list [[att_score_0, att_score_1, ..., att_score_n], ...]
     """
 
-    DEVICE = "cpu"
-    MAX_LENGTH = 512
+    try:
+        DEVICE = "cpu"
+        MAX_LENGTH = 512
 
-    provider = ["CPUExecutionProvider"]
-    if gpu:
-        # provider.insert(0, "TensorrtExecutionProvider")
-        provider.insert(0, "CUDAExecutionProvider")
+        provider = ["CPUExecutionProvider"]
+        if gpu:
+            # provider.insert(0, "TensorrtExecutionProvider")
+            provider.insert(0, "CUDAExecutionProvider")
 
-    print(provider)
+        print(provider)
 
-    # load tokenizer
-    tokenizer = RobertaTokenizer.from_pretrained("./inference-common/tokenizer")
-    model_input = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length',
-                            return_tensors="pt").input_ids
-    if use_int32:
-        model_input = model_input.type(torch.int32)
-        attention_mask = model_input.ne(tokenizer.pad_token_id).type(torch.float32)
-        # TODO - change DEVICE
-        token_type_ids = torch.zeros(model_input.shape, dtype=torch.int32, device=DEVICE)
-        position_ids = create_position_ids_from_input_ids(model_input, tokenizer.pad_token_id)
-    # onnx runtime session
-    ort_session = onnxruntime.InferenceSession("./saved_models/onnx_checkpoint/linevul.onnx", providers=provider)
-    # compute ONNX Runtime output prediction
-    if use_int32:
-        ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(model_input),
-                      ort_session.get_inputs()[1].name: to_numpy(attention_mask),
-                      ort_session.get_inputs()[2].name: to_numpy(token_type_ids),
-                      ort_session.get_inputs()[3].name: to_numpy(position_ids)}
-    else:
-        ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(model_input)}
-    prob, attentions = ort_session.run(None, ort_inputs)
-    # prepare token for attention line score mapping
-    batch_tokens = []
-    for mini_batch in model_input.tolist():
-        tokens = tokenizer.convert_ids_to_tokens(mini_batch)
-        tokens = [token.replace("Ġ", "") for token in tokens]
-        tokens = [token.replace("ĉ", "Ċ") for token in tokens]
-        batch_tokens.append(tokens)
-    batch_att_weight_sum = []
-    # go into the layer
-    for j in range(len(attentions)):
-        att_weight_sum = None
-        att_of_one_func = attentions[j]
-        for i in range(len(attentions[0])):
-            layer_attention = att_of_one_func[i]
-            # summerize the values of each token dot other tokens
-            layer_attention = sum(layer_attention)
-            if att_weight_sum is None:
-                att_weight_sum = layer_attention
-            else:
-                att_weight_sum += layer_attention
-        # normalize attention score
-        att_weight_sum -= att_weight_sum.min()
-        att_weight_sum /= att_weight_sum.max()
-        batch_att_weight_sum.append(att_weight_sum)
-    # batch_line_scores (2D list with shape of [batch size, seq length]): [[att_score_0, att_score_1, ..., att_score_n], ...]
-    batch_line_scores = []
-    for i in range(len(batch_att_weight_sum)):
-        # clean att score for <s> and </s>
-        att_weight_sum = clean_special_token_values(batch_att_weight_sum[i], padding=True)
-        # attention should be 1D tensor with seq length representing each token's attention value
-        word_att_scores = get_word_att_scores(tokens=batch_tokens[i], att_scores=att_weight_sum)
-        line_scores = get_all_lines_score(word_att_scores)
-        batch_line_scores.append(line_scores)
-    # batch_vul_pred (1D list with shape of [batch size]): [pred_1, pred_2, ..., pred_n]
-    batch_vul_pred = np.argmax(prob, axis=-1).tolist()
-    # batch_vul_pred_prob (1D list with shape of [batch_size]): [prob_1, prob_2, ..., prob_n]
-    batch_vul_pred_prob = []
-    for i in range(len(prob)):
-        batch_vul_pred_prob.append(prob[i][batch_vul_pred[
-            i]].item())  # .item() added to prevent 'Object of type float32 is not JSON serializable' error
+        # load tokenizer
+        tokenizer = RobertaTokenizer.from_pretrained("./inference-common/tokenizer")
+        model_input = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length',
+                                return_tensors="pt").input_ids
+        if use_int32:
+            model_input = model_input.type(torch.int32)
+            attention_mask = model_input.ne(tokenizer.pad_token_id).type(torch.float32)
+            # TODO - change DEVICE
+            token_type_ids = torch.zeros(model_input.shape, dtype=torch.int32, device=DEVICE)
+            position_ids = create_position_ids_from_input_ids(model_input, tokenizer.pad_token_id)
+        # onnx runtime session
 
-    return {"batch_vul_pred": batch_vul_pred, "batch_vul_pred_prob": batch_vul_pred_prob,
-            "batch_line_scores": batch_line_scores}
+        ort_session = onnxruntime.InferenceSession("./saved_models/onnx_checkpoint/linevul.onnx", providers=provider)
+
+
+        # ort_session = onnxruntime.InferenceSession("./saved_models/onnx_checkpoint/linevul.onnx", providers=provider)
+        # compute ONNX Runtime output prediction
+        if use_int32:
+            ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(model_input),
+                          ort_session.get_inputs()[1].name: to_numpy(attention_mask),
+                          ort_session.get_inputs()[2].name: to_numpy(token_type_ids),
+                          ort_session.get_inputs()[3].name: to_numpy(position_ids)}
+        else:
+            ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(model_input)}
+        prob, attentions = ort_session.run(None, ort_inputs)
+
+        # prepare token for attention line score mapping
+        batch_tokens = []
+        for mini_batch in model_input.tolist():
+            tokens = tokenizer.convert_ids_to_tokens(mini_batch)
+            tokens = [token.replace("Ġ", "") for token in tokens]
+            tokens = [token.replace("ĉ", "Ċ") for token in tokens]
+            batch_tokens.append(tokens)
+
+        del ort_session
+
+        batch_att_weight_sum = []
+        # go into the layer
+        for j in range(len(attentions)):
+            att_weight_sum = None
+            att_of_one_func = attentions[j]
+            for i in range(len(attentions[0])):
+                layer_attention = att_of_one_func[i]
+                # summerize the values of each token dot other tokens
+                layer_attention = sum(layer_attention)
+                if att_weight_sum is None:
+                    att_weight_sum = layer_attention
+                else:
+                    att_weight_sum += layer_attention
+            # normalize attention score
+            att_weight_sum -= att_weight_sum.min()
+            att_weight_sum /= att_weight_sum.max()
+            batch_att_weight_sum.append(att_weight_sum)
+        # batch_line_scores (2D list with shape of [batch size, seq length]): [[att_score_0, att_score_1, ..., att_score_n], ...]
+        batch_line_scores = []
+        for i in range(len(batch_att_weight_sum)):
+            # clean att score for <s> and </s>
+            att_weight_sum = clean_special_token_values(batch_att_weight_sum[i], padding=True)
+            # attention should be 1D tensor with seq length representing each token's attention value
+            word_att_scores = get_word_att_scores(tokens=batch_tokens[i], att_scores=att_weight_sum)
+            line_scores = get_all_lines_score(word_att_scores)
+            batch_line_scores.append(line_scores)
+        # batch_vul_pred (1D list with shape of [batch size]): [pred_1, pred_2, ..., pred_n]
+        batch_vul_pred = np.argmax(prob, axis=-1).tolist()
+        # batch_vul_pred_prob (1D list with shape of [batch_size]): [prob_1, prob_2, ..., prob_n]
+        batch_vul_pred_prob = []
+        for i in range(len(prob)):
+            batch_vul_pred_prob.append(prob[i][batch_vul_pred[
+                i]].item())  # .item() added to prevent 'Object of type float32 is not JSON serializable' error
+
+        del prob
+        del attentions
+
+        return {"batch_vul_pred": batch_vul_pred, "batch_vul_pred_prob": batch_vul_pred_prob,
+                "batch_line_scores": batch_line_scores}
+
+    except Exception as e:
+        return Exception("Error loading ONNX model: {}".format(e))
 
 
 def get_word_att_scores(tokens: list, att_scores: list) -> list:
@@ -290,9 +305,28 @@ def predict_gpu(request: Request):
     if not functions:
         return {'error': 'No functions to process'}
     else:
-        result = json.dumps(main(functions, True, False))
+        # usage = memory_usage((main, (functions, True, False)))
+        # return json.dumps(usage)
+        #
+        try:
+            usage = memory_usage((main, (functions, True, False)), retval=True)
+            # If usage is an exception, raise
+            if isinstance(usage[1], Exception):
+                raise Exception("Something Happened")
+            return json.dumps(usage)
+        except Exception as e:
+            print("Error orrured: ", e)
+            print("But do nothing")
+            raise HTTPException(status_code=500, detail="Error occurred: " + str(e))
+            pass
 
-        return result
+        # If usage contains an exception, break:
+
+
+        # return json.dumps(usage)
+        # result = json.dumps(main(functions, True, False))
+        #
+        # return result
 
 
 @app.post('/api/v1/cpu/predict')
@@ -302,11 +336,9 @@ def predict_cpu(request: Request):
     if not functions:
         return {'error': 'No functions to process'}
     else:
-        result = json.dumps(main(functions, False, False))
-        usage = memory_usage((main, (functions, False, False)))
-        diff = max(usage) - min(usage)
-        print(diff)
-        return result
+        # result = json.dumps(main(functions, False, False))
+        usage = memory_usage((main, (functions, False, False)), retval=True)
+        return json.dumps(usage)
 
 
 @app.post('/api/v1/gpu/cwe')
