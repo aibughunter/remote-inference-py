@@ -3,7 +3,7 @@ import json
 import random
 import time
 from xmlrpc.client import boolean
-from transformers import RobertaTokenizer, T5ForConditionalGeneration
+from transformers import RobertaTokenizer, T5ForConditionalGeneration, T5Config
 import torch
 import onnxruntime
 # from flask import Flask, request
@@ -290,7 +290,8 @@ def main_repair(code: list, max_repair_length: int = 256) -> dict:
     # load tokenizer
     tokenizer = RobertaTokenizer.from_pretrained("./inference-common/repair_tokenizer")
     tokenizer.add_tokens(["<S2SV_StartBug>", "<S2SV_EndBug>", "<S2SV_blank>", "<S2SV_ModStart>", "<S2SV_ModEnd>"])    
-    model = T5ForConditionalGeneration.from_pretrained("Salesforce/codet5-base")
+    config = T5Config.from_pretrained("./inference-common/repair_model_config.json")
+    model = T5ForConditionalGeneration(config=config)
     model.resize_token_embeddings(len(tokenizer))
     model.load_state_dict(torch.load("./saved_models/checkpoint-best-loss/repair_model.bin", map_location=device))
     model.eval()
