@@ -292,7 +292,7 @@ def main_repair(code: list, max_repair_length: int = 256) -> dict:
     tokenizer.add_tokens(["<S2SV_StartBug>", "<S2SV_EndBug>", "<S2SV_blank>", "<S2SV_ModStart>", "<S2SV_ModEnd>"])    
     model = T5ForConditionalGeneration.from_pretrained("Salesforce/codet5-base")
     model.resize_token_embeddings(len(tokenizer))
-    model.load_state_dict(torch.load("./saved_models/checkpoint-best-loss/vulrepair.bin", map_location=device))
+    model.load_state_dict(torch.load("./saved_models/checkpoint-best-loss/repair_model.bin", map_location=device))
     model.eval()
     input_ids = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length', return_tensors="pt").input_ids
     attention_mask = input_ids.ne(tokenizer.pad_token_id)
