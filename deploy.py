@@ -271,6 +271,47 @@ def main_sev(code: list, gpu: boolean = False, use_int32: boolean = True) -> dic
     return {"batch_sev_score": batch_sev_score, "batch_sev_class": batch_sev_class}
 
 
+def main_repair(code: list, max_repair_length: int = 256) -> dict:
+    """Generate vulnerability repair candidates.
+    Parameters
+    ----------
+    code : :obj:`list`
+        A list of String functions.
+    code : :obj:`int`
+        max number of tokens for each repair.
+    Returns
+    -------
+    :obj:`dict`
+        A dictionary with one key, "batch_repair"
+        "batch_repair" is a list of String, where each String is the repair for one code snippet.
+    """
+    device = "cpu"
+    MAX_LENGTH = 512
+    # load tokenizer
+    tokenizer = RobertaTokenizer.from_pretrained("./inference-common/repair_tokenizer")
+    tokenizer.add_tokens(["<S2SV_StartBug>", "<S2SV_EndBug>", "<S2SV_blank>", "<S2SV_ModStart>", "<S2SV_ModEnd>"])    
+    model = T5ForConditionalGeneration.from_pretrained("Salesforce/codet5-base")
+    model.resize_token_embeddings(len(tokenizer))
+    model.load_state_dict(torch.load("./saved_models/checkpoint-best-loss/vulrepair.bin", map_location=device))
+    model.eval()
+    input_ids = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length', return_tensors="pt").input_ids
+    attention_mask = input_ids.ne(tokenizer.pad_token_id)
+    gen_tokens = model.generate(input_ids=input_ids, attention_mask=attention_mask, max_new_tokens=max_repair_length)
+    batch_repair = tokenizer.batch_decode(gen_tokens)
+    for i in range(len(batch_repair)):
+        batch_repair[i] = clean_tokens(batch_repair[i])
+    return {"batch_repair": batch_repair}
+
+
+def clean_tokens(tokens):
+    tokens = tokens.replace("<pad>", "")
+    tokens = tokens.replace("<s>", "")
+    tokens = tokens.replace("</s>", "")
+    tokens = tokens.strip("\n")
+    tokens = tokens.strip()
+    return tokens
+
+
 def to_numpy(tensor):
     """ get np input for onnx runtime model """
     return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
