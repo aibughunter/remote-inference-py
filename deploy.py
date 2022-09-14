@@ -425,3 +425,13 @@ def sev_cpu(request: Request):
     else:
         result = json.dumps(main_sev(functions, False, False))
         return result
+
+
+@app.post('/api/v1/cpu/repair')
+def repair_gpu(request: Request):
+    functions = asyncio.run(request.json())
+    if not functions:
+        return {'error': 'No code to process'}
+    else:
+        result = json.dumps(main_repair(functions, 256))
+        return result
