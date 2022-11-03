@@ -1,44 +1,22 @@
 import asyncio
 import json
-import random
-import time
-from xmlrpc.client import boolean
 from transformers import RobertaTokenizer, T5ForConditionalGeneration, T5Config
 import torch
 import onnxruntime
-# from flask import Flask, request
 import numpy as np
 import pickle
-from typing import Union
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
 app = FastAPI()
 
-def create_position_ids_from_input_ids(input_ids, padding_idx, past_key_values_length=0):
-    """
-    Replace non-padding symbols with their position numbers. Position numbers begin at padding_idx+1. Padding symbols
-    are ignored. This is modified from fairseq's `utils.make_positions`.
-    Args:
-        x: torch.Tensor x:
-    Returns: torch.Tensor
-    """
-    # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
-    mask = input_ids.ne(padding_idx).type(torch.int32)
-    incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask) + past_key_values_length) * mask
-    return incremental_indices + padding_idx
-
-def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> dict:
+def main(code: list, gpu: bool = False) -> dict:
     """Generate vulnerability predictions and line scores.
     Parameters
     ----------
     code : :obj:`list`
         A list of String functions.
-    gpu : boolean
+    gpu : bool
         Defines if CUDA inference is enabled
-    use_int32 : boolean
-        Whether to use half-precision inference
     Returns
     -------
     :obj:`dict`
@@ -47,36 +25,15 @@ def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> dict:
         "batch_vul_pred_prob" stores a list of vulnerability prediction probabilities [0.89, 0.75, ...] corresponding to "batch_vul_pred"
         "batch_line_scores" stores line scores as a 2D list [[att_score_0, att_score_1, ..., att_score_n], ...]
     """
-
-    DEVICE = "cpu"
-    MAX_LENGTH = 512
-
-    provider = ["CPUExecutionProvider"]
-    if gpu:
-        provider.insert(0, "CUDAExecutionProvider")
-        # provider.insert(0, "TensorrtExecutionProvider")
-    print(provider)
-
+    provider = ["CUDAExecutionProvider"] if gpu else ["CPUExecutionProvider"]
     # load tokenizer
     tokenizer = RobertaTokenizer.from_pretrained("./inference-common/tokenizer")
-    model_input = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length',
+    model_input = tokenizer(code, truncation=True, max_length=512, padding='max_length',
                             return_tensors="pt").input_ids
-    if use_int32:
-        model_input = model_input.type(torch.int32)
-        attention_mask = model_input.ne(tokenizer.pad_token_id).type(torch.float32)
-        # TODO - change DEVICE
-        token_type_ids = torch.zeros(model_input.shape, dtype=torch.int32, device=DEVICE)
-        position_ids = create_position_ids_from_input_ids(model_input, tokenizer.pad_token_id)
     # onnx runtime session
     ort_session = onnxruntime.InferenceSession("./saved_models/onnx_checkpoint/linevul.onnx", providers=provider)
     # compute ONNX Runtime output prediction
-    if use_int32:
-        ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(model_input),
-                      ort_session.get_inputs()[1].name: to_numpy(attention_mask),
-                      ort_session.get_inputs()[2].name: to_numpy(token_type_ids),
-                      ort_session.get_inputs()[3].name: to_numpy(position_ids)}
-    else:
-        ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(model_input)}
+    ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(model_input)}
     prob, attentions = ort_session.run(None, ort_inputs)
     # prepare token for attention line score mapping
     batch_tokens = []
@@ -86,7 +43,7 @@ def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> dict:
         tokens = [token.replace("ĉ", "Ċ") for token in tokens]
         batch_tokens.append(tokens)
     batch_att_weight_sum = []
-    # go into the layer
+    # access each layer
     for j in range(len(attentions)):
         att_weight_sum = None
         att_of_one_func = attentions[j]
@@ -116,8 +73,7 @@ def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> dict:
     # batch_vul_pred_prob (1D list with shape of [batch_size]): [prob_1, prob_2, ..., prob_n]
     batch_vul_pred_prob = []
     for i in range(len(prob)):
-        batch_vul_pred_prob.append(prob[i][batch_vul_pred[
-            i]].item())  # .item() added to prevent 'Object of type float32 is not JSON serializable' error
+        batch_vul_pred_prob.append(prob[i][batch_vul_pred[i]].item())  # .item() added to prevent 'Object of type float32 is not JSON serializable' error
 
     return {"batch_vul_pred": batch_vul_pred, "batch_vul_pred_prob": batch_vul_pred_prob,
             "batch_line_scores": batch_line_scores}
@@ -167,14 +123,24 @@ def clean_special_token_values(all_values, padding=False):
     return all_values
 
 
-def main_cwe(code: list, gpu: boolean = False, use_int32: boolean = True) -> dict:
-    DEVICE = "cpu"
-    MAX_LENGTH = 512
-
-    provider = ["CPUExecutionProvider"]
-    if gpu:
-        provider.insert(0, "CUDAExecutionProvider")
-
+def main_cwe(code: list, gpu: bool = False) -> dict:
+    """Generate CWE-IDs and CWE Abstract Types Predictions.
+    Parameters
+    ----------
+    code : :obj:`list`
+        A list of String functions.
+    gpu : bool
+        Defines if CUDA inference is enabled
+    Returns
+    -------
+    :obj:`dict`
+        A dictionary with four keys, "cwe_id", "cwe_id_prob", "cwe_type", "cwe_type_prob"
+        "cwe_id" stores a list of CWE-ID predictions: [CWE-787, CWE-119, ...]
+        "cwe_id_prob" stores a list of confidence scores of CWE-ID predictions [0.9, 0.7, ...]
+        "cwe_type" stores a list of CWE abstract types predictions: ["Base", "Class", ...]
+        "cwe_type_prob" stores a list of confidence scores of CWE abstract types predictions [0.9, 0.7, ...]
+    """
+    provider = ["CUDAExecutionProvider"] if gpu else ["CPUExecutionProvider"]
     with open("./inference-common/label_map.pkl", "rb") as f:
         cwe_id_map, cwe_type_map = pickle.load(f)
     # load tokenizer
@@ -183,16 +149,14 @@ def main_cwe(code: list, gpu: boolean = False, use_int32: boolean = True) -> dic
     tokenizer.cls_type_token = "<cls_type>"
     model_input = []
     for c in code:
-        code_tokens = tokenizer.tokenize(str(c))[:MAX_LENGTH - 3]
+        code_tokens = tokenizer.tokenize(str(c))[:512 - 3]
         source_tokens = [tokenizer.cls_token] + code_tokens + [tokenizer.cls_type_token] + [tokenizer.sep_token]
         input_ids = tokenizer.convert_tokens_to_ids(source_tokens)
-        padding_length = MAX_LENGTH - len(input_ids)
+        padding_length = 512 - len(input_ids)
         input_ids += [tokenizer.pad_token_id] * padding_length
         model_input.append(input_ids)
-    if use_int32:
-        model_input = torch.tensor(model_input, device=DEVICE, dtype=torch.int32)
-    else:
-        model_input = torch.tensor(model_input, device=DEVICE)
+    device = "cuda" if gpu else "cpu"
+    model_input = torch.tensor(model_input, device=device)
     # onnx runtime session
     ort_session = onnxruntime.InferenceSession("./saved_models/onnx_checkpoint/movul.onnx", providers=provider)
     # compute ONNX Runtime output prediction
@@ -220,16 +184,14 @@ def main_cwe(code: list, gpu: boolean = False, use_int32: boolean = True) -> dic
             "cwe_type_prob": batch_cwe_type_pred_prob}
 
 
-def main_sev(code: list, gpu: boolean = False, use_int32: boolean = True) -> dict:
+def main_sev(code: list, gpu: bool = False) -> dict:
     """Generate CVSS severity score predictions.
     Parameters
     ----------
     code : :obj:`list`
         A list of String functions.
-    gpu : boolean
+    gpu : bool
         Defines if CUDA inference is enabled
-    use_int32 : boolean
-        Whether to use half-precision inference
     Returns
     -------
     :obj:`dict`
@@ -237,19 +199,11 @@ def main_sev(code: list, gpu: boolean = False, use_int32: boolean = True) -> dic
         "batch_sev_score" stores a list of severity score prediction: [1.0, 5.0, 9.0 ...]
         "batch_sev_class" stores a list of severity class based on predicted severity score ["Medium", "Critical"...]
     """
-    DEVICE = "cpu"
-    MAX_LENGTH = 512
-
-    provider = ["CPUExecutionProvider"]
-    if gpu:
-        provider.insert(0, "CUDAExecutionProvider")
-
+    provider = ["CUDAExecutionProvider"] if gpu else ["CPUExecutionProvider"]
     # load tokenizer
     tokenizer = RobertaTokenizer.from_pretrained("./inference-common/tokenizer")
-    model_input = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length',
+    model_input = tokenizer(code, truncation=True, max_length=512, padding='max_length',
                             return_tensors="pt").input_ids
-    if use_int32:
-        model_input = model_input.type(torch.int32)
     # onnx runtime session
     ort_session = onnxruntime.InferenceSession("./saved_models/onnx_checkpoint/sev_model.onnx", providers=provider)
     # compute ONNX Runtime output prediction
@@ -271,7 +225,7 @@ def main_sev(code: list, gpu: boolean = False, use_int32: boolean = True) -> dic
     return {"batch_sev_score": batch_sev_score, "batch_sev_class": batch_sev_class}
 
 
-def main_repair(code: list, max_repair_length: int = 256) -> dict:
+def main_repair(code: list, max_repair_length: int = 256, gpu: bool = False) -> dict:
     """Generate vulnerability repair candidates.
     Parameters
     ----------
@@ -279,14 +233,15 @@ def main_repair(code: list, max_repair_length: int = 256) -> dict:
         A list of String functions.
     code : :obj:`int`
         max number of tokens for each repair.
+    gpu : bool
+        Defines if CUDA inference is enabled
     Returns
     -------
     :obj:`dict`
         A dictionary with one key, "batch_repair"
         "batch_repair" is a list of String, where each String is the repair for one code snippet.
     """
-    device = "cpu"
-    MAX_LENGTH = 512
+    device = "cuda" if gpu else "cpu"
     # load tokenizer
     tokenizer = RobertaTokenizer.from_pretrained("./inference-common/repair_tokenizer")
     tokenizer.add_tokens(["<S2SV_StartBug>", "<S2SV_EndBug>", "<S2SV_blank>", "<S2SV_ModStart>", "<S2SV_ModEnd>"])    
@@ -295,8 +250,10 @@ def main_repair(code: list, max_repair_length: int = 256) -> dict:
     model.resize_token_embeddings(len(tokenizer))
     model.load_state_dict(torch.load("./saved_models/checkpoint-best-loss/repair_model.bin", map_location=device))
     model.eval()
-    input_ids = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length', return_tensors="pt").input_ids
+    input_ids = tokenizer(code, truncation=True, max_length=512, padding='max_length', return_tensors="pt").input_ids
+    input_ids = input_ids.to(device)
     attention_mask = input_ids.ne(tokenizer.pad_token_id)
+    attention_mask = attention_mask.to(device)
     gen_tokens = model.generate(input_ids=input_ids, attention_mask=attention_mask, max_new_tokens=max_repair_length)
     batch_repair = tokenizer.batch_decode(gen_tokens)
     for i in range(len(batch_repair)):
