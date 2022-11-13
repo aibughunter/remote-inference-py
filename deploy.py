@@ -282,7 +282,7 @@ def predict_gpu(request: Request):
     if not functions:
         return {'error': 'No functions to process'}
     else:
-        result = json.dumps(main(functions, True, False))
+        result = json.dumps(main(functions, True))
         return result
 
 
@@ -293,7 +293,7 @@ def predict_cpu(request: Request):
     if not functions:
         return {'error': 'No functions to process'}
     else:
-        result = json.dumps(main(functions, False, False))
+        result = json.dumps(main(functions, False))
         return result
 
 
@@ -304,7 +304,7 @@ def cwe_gpu(request: Request):
     if not functions:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_cwe(functions, True, False))
+        result = json.dumps(main_cwe(functions, True))
         return result
 
 
@@ -315,7 +315,7 @@ def cwe_cpu(request: Request):
     if not functions:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_cwe(functions, False, False))
+        result = json.dumps(main_cwe(functions, False))
         return result
 
 
@@ -326,7 +326,7 @@ def sev_gpu(request: Request):
     if not functions:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_sev(functions, True, False))
+        result = json.dumps(main_sev(functions, True))
         return result
 
 
@@ -337,7 +337,7 @@ def sev_cpu(request: Request):
     if not functions:
         return {'error': 'No code to process'}
     else:
-        result = json.dumps(main_sev(functions, False, False))
+        result = json.dumps(main_sev(functions, False))
         return result
 
 
