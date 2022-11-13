@@ -38,7 +38,7 @@ pip install uvicorn
 pip install gunicorn
 ```
 
-## Deploying the server
+### Deploying the server
 
 There are multiple ways you can deploy this server, mainly by using either `uvicorn` or `gunicorn`
 
