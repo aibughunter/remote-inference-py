@@ -25,7 +25,7 @@ def main(code: list, gpu: bool = False) -> dict:
         "batch_vul_pred_prob" stores a list of vulnerability prediction probabilities [0.89, 0.75, ...] corresponding to "batch_vul_pred"
         "batch_line_scores" stores line scores as a 2D list [[att_score_0, att_score_1, ..., att_score_n], ...]
     """
-    provider = ["CUDAExecutionProvider"] if gpu else ["CPUExecutionProvider"]
+    provider = ["CUDAExecutionProvider", "CPUExecutionProvider"] if gpu else ["CPUExecutionProvider"]
     # load tokenizer
     tokenizer = RobertaTokenizer.from_pretrained("./inference-common/tokenizer")
     model_input = tokenizer(code, truncation=True, max_length=512, padding='max_length',
@@ -140,7 +140,7 @@ def main_cwe(code: list, gpu: bool = False) -> dict:
         "cwe_type" stores a list of CWE abstract types predictions: ["Base", "Class", ...]
         "cwe_type_prob" stores a list of confidence scores of CWE abstract types predictions [0.9, 0.7, ...]
     """
-    provider = ["CUDAExecutionProvider"] if gpu else ["CPUExecutionProvider"]
+    provider = ["CUDAExecutionProvider", "CPUExecutionProvider"] if gpu else ["CPUExecutionProvider"]
     with open("./inference-common/label_map.pkl", "rb") as f:
         cwe_id_map, cwe_type_map = pickle.load(f)
     # load tokenizer
@@ -199,7 +199,7 @@ def main_sev(code: list, gpu: bool = False) -> dict:
         "batch_sev_score" stores a list of severity score prediction: [1.0, 5.0, 9.0 ...]
         "batch_sev_class" stores a list of severity class based on predicted severity score ["Medium", "Critical"...]
     """
-    provider = ["CUDAExecutionProvider"] if gpu else ["CPUExecutionProvider"]
+    provider = ["CUDAExecutionProvider", "CPUExecutionProvider"] if gpu else ["CPUExecutionProvider"]
     # load tokenizer
     tokenizer = RobertaTokenizer.from_pretrained("./inference-common/tokenizer")
     model_input = tokenizer(code, truncation=True, max_length=512, padding='max_length',
