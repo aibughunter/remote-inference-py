@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
+
 def create_position_ids_from_input_ids(input_ids, padding_idx, past_key_values_length=0):
     """
     Replace non-padding symbols with their position numbers. Position numbers begin at padding_idx+1. Padding symbols
@@ -28,6 +29,7 @@ def create_position_ids_from_input_ids(input_ids, padding_idx, past_key_values_l
     mask = input_ids.ne(padding_idx).type(torch.int32)
     incremental_indices = (torch.cumsum(mask, dim=1).type_as(mask) + past_key_values_length) * mask
     return incremental_indices + padding_idx
+
 
 def main(code: list, gpu: boolean = False, use_int32: boolean = False) -> dict:
     """Generate vulnerability predictions and line scores.
@@ -289,13 +291,14 @@ def main_repair(code: list, max_repair_length: int = 256) -> dict:
     MAX_LENGTH = 512
     # load tokenizer
     tokenizer = RobertaTokenizer.from_pretrained("./inference-common/repair_tokenizer")
-    tokenizer.add_tokens(["<S2SV_StartBug>", "<S2SV_EndBug>", "<S2SV_blank>", "<S2SV_ModStart>", "<S2SV_ModEnd>"])    
+    tokenizer.add_tokens(["<S2SV_StartBug>", "<S2SV_EndBug>", "<S2SV_blank>", "<S2SV_ModStart>", "<S2SV_ModEnd>"])
     config = T5Config.from_pretrained("./inference-common/repair_model_config.json")
     model = T5ForConditionalGeneration(config=config)
     model.resize_token_embeddings(len(tokenizer))
     model.load_state_dict(torch.load("./saved_models/checkpoint-best-loss/repair_model.bin", map_location=device))
     model.eval()
-    input_ids = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length', return_tensors="pt").input_ids
+    input_ids = tokenizer(code, truncation=True, max_length=MAX_LENGTH, padding='max_length',
+                          return_tensors="pt").input_ids
     attention_mask = input_ids.ne(tokenizer.pad_token_id)
     gen_tokens = model.generate(input_ids=input_ids, attention_mask=attention_mask, max_new_tokens=max_repair_length)
     batch_repair = tokenizer.batch_decode(gen_tokens)
@@ -320,7 +323,6 @@ def to_numpy(tensor):
 
 @app.post('/api/v1/gpu/predict')
 def predict_gpu(request: Request):
-
     functions = asyncio.run(request.json())
 
     if not functions:
@@ -329,9 +331,9 @@ def predict_gpu(request: Request):
         result = json.dumps(main(functions, True, False))
         return result
 
+
 @app.post('/api/v1/cpu/predict')
 def predict_cpu(request: Request):
-
     functions = asyncio.run(request.json())
 
     if not functions:
@@ -340,9 +342,9 @@ def predict_cpu(request: Request):
         result = json.dumps(main(functions, False, False))
         return result
 
+
 @app.post('/api/v1/gpu/cwe')
 def cwe_gpu(request: Request):
-
     functions = asyncio.run(request.json())
 
     if not functions:
@@ -354,7 +356,6 @@ def cwe_gpu(request: Request):
 
 @app.post('/api/v1/cpu/cwe')
 def cwe_cpu(request: Request):
-
     functions = asyncio.run(request.json())
 
     if not functions:
@@ -366,7 +367,6 @@ def cwe_cpu(request: Request):
 
 @app.post('/api/v1/gpu/sev')
 def sev_gpu(request: Request):
-
     functions = asyncio.run(request.json())
 
     if not functions:
@@ -378,11 +378,34 @@ def sev_gpu(request: Request):
 
 @app.post('/api/v1/cpu/sev')
 def sev_cpu(request: Request):
-
     functions = asyncio.run(request.json())
 
     if not functions:
         return {'error': 'No code to process'}
     else:
         result = json.dumps(main_sev(functions, False, False))
+        return result
+
+
+@app.post('/api/v1/gpu/repair')
+def repair_gpu(request: Request):
+    functions = asyncio.run(request.json())
+
+    if not functions:
+        return {'error': 'No code to process'}
+    else:
+        result = json.dumps(main_repair(functions, 256))
+        print(result)
+        return result
+
+
+@app.post('/api/v1/cpu/repair')
+def repair_cpu(request: Request):
+    functions = asyncio.run(request.json())
+
+    if not functions:
+        return {'error': 'No code to process'}
+    else:
+        result = json.dumps(main_repair(functions, 256))
+        print(result)
         return result
