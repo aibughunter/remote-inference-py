@@ -1,6 +1,7 @@
 import asyncio
 import json
-from transformers import RobertaTokenizer, T5ForConditionalGeneration, T5Config
+from transformers import RobertaTokenizer, T5ForConditionalGeneration, T5Config, T5EncoderModel
+from statement_t5_model import StatementT5
 import torch
 import onnxruntime
 import numpy as np
@@ -8,6 +9,73 @@ import pickle
 from fastapi import FastAPI, Request
 
 app = FastAPI()
+
+def main_v2(code: list, gpu: bool = False) -> dict:
+    """Generate statement-level and function-level vulnerability prediction probabilities.
+    Parameters
+    ----------
+    code : :obj:`list`
+        A list of String functions.
+    gpu : bool
+        Defines if CUDA inference is enabled
+    Returns
+    -------
+    :obj:`dict`
+        A dictionary with two keys, "batch_vul_pred", "batch_vul_pred_prob", and "batch_line_scores"
+        "batch_func_pred" stores a list of function-level vulnerability prediction: [0, 1, ...] where 0 means non-vulnerable and 1 means vulnerable
+        "batch_func_pred_prob" stores a list of function-level vulnerability prediction probabilities [0.89, 0.75, ...] corresponding to "batch_func_pred"
+        "batch_statement_pred" stores a list of statement-level vulnerability prediction: [0, 1, ...] where 0 means non-vulnerable and 1 means vulnerable
+        "batch_statement_pred_prob" stores a list of statement-level vulnerability prediction probabilities [0.89, 0.75, ...] corresponding to "batch_statement_pred"
+    """
+    MAX_STATEMENTS = 155
+    MAX_STATEMENT_LENGTH = 20
+    DEVICE = 'cuda' if gpu else 'cpu'
+    # load tokenizer
+    tokenizer = RobertaTokenizer.from_pretrained("./inference-common/statement_t5_tokenizer")
+    # load model
+    config = T5Config.from_pretrained("./inference-common/t5_config.json")
+    model = T5EncoderModel(config=config)    
+    model = StatementT5(model, tokenizer, device=DEVICE)
+    output_dir = "./models/statement_t5_model.bin"
+    model.load_state_dict(torch.load(output_dir, map_location=DEVICE))
+    model.to(DEVICE)
+    model.eval()
+    input_ids, statement_mask = statement_tokenization(code, MAX_STATEMENTS, MAX_STATEMENT_LENGTH, tokenizer)
+    with torch.no_grad():
+        statement_probs, func_probs = model(input_ids=input_ids, statement_mask=statement_mask)
+    func_preds = torch.argmax(func_probs, dim=-1)
+    statement_preds = torch.where(statement_probs>0.5, 1, 0)
+    return {"batch_func_pred": func_preds, "batch_func_pred_prob": func_probs,
+            "batch_statement_pred": statement_preds, "batch_statement_pred_prob": statement_probs}
+
+def statement_tokenization(code: list, max_statements: int, max_statement_length: int, tokenizer):
+    batch_input_ids = []
+    batch_statement_mask = []
+    for c in code:
+        source = c.split("\n")
+        source = [statement != "" for statement in source]
+        source = source[:max_statements]
+        padding_statement = [tokenizer.pad_token_id for _ in range(20)]
+        input_ids = []
+        for stat in source:
+            ids_ = tokenizer.encode(str(stat),
+                                    truncation=True,
+                                    max_length=max_statement_length,
+                                    padding='max_length',
+                                    add_special_tokens=False)
+            input_ids.append(ids_)
+        if len(input_ids) < max_statements:
+            for _ in range(max_statements-len(input_ids)):
+                input_ids.append(padding_statement)
+        statement_mask = []
+        for statement in input_ids:
+            if statement == padding_statement:
+                statement_mask.append(0)
+            else:
+                statement_mask.append(1)
+        batch_input_ids.append(input_ids)
+        batch_statement_mask.append(statement_mask)
+    return torch.tensor(batch_input_ids), torch.tensor(batch_statement_mask)
 
 def main(code: list, gpu: bool = False) -> dict:
     """Generate vulnerability predictions and line scores.
