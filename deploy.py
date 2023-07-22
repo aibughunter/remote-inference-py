@@ -53,7 +53,7 @@ def statement_tokenization(code: list, max_statements: int, max_statement_length
     batch_statement_mask = []
     for c in code:
         source = c.split("\n")
-        source = [statement != "" for statement in source]
+        source = [statement for statement in source if statement != ""]
         source = source[:max_statements]
         padding_statement = [tokenizer.pad_token_id for _ in range(20)]
         input_ids = []
